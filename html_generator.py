@@ -35,3 +35,4 @@ with open("latest.html", "w", encoding="utf-8") as f:
     f.write(html)
 
 print("✅ latest.html 생성 완료!")
+
