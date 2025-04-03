@@ -1,38 +1,100 @@
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.chrome.options import Options
+from webdriver_manager.chrome import ChromeDriverManager
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 from bs4 import BeautifulSoup
+from datetime import datetime
+import time
+import os
 
-with open("feed.xml", "r", encoding="utf-8") as f:
-    soup = BeautifulSoup(f, "xml")
+# 🧠 크롬 브라우저 설정
+options = Options()
+# options.add_argument('--headless')  # 필요 시 창 없이 실행
+options.add_argument('--disable-dev-shm-usage')
+options.add_argument('--no-sandbox')
 
-items = soup.find_all("item")[:5]
+# ✅ 크롬 드라이버 실행
+driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
 
-cards = ""
+# 🔗 AICT 게시판 접속
+url = "https://aict.snu.ac.kr/?p=92"
+driver.get(url)
 
-for item in items:
-    title = item.title.text
-    link = item.link.text
-    img = BeautifulSoup(item.description.text, "html.parser").find("img")["src"]
+# ⏳ 게시물 로딩 대기
+WebDriverWait(driver, 10).until(
+    EC.presence_of_element_located((By.CSS_SELECTOR, ".gallery_list li"))
+)
 
-    cards += f'''
-    <a href="{link}" target="_blank" style="text-decoration: none; color: black; width: 100px; text-align: center;">
-      <img src="{img}" width="100" height="80" style="object-fit: cover; border-radius: 4px;">
-      <div style="font-size: 11px; margin-top: 4px;">{title}</div>
-    </a>
-    '''
+# 🌐 HTML 추출
+html = driver.page_source
+soup = BeautifulSoup(html, "html.parser")
 
-html = f"""
-<!DOCTYPE html>
-<html>
-<head><meta charset="utf-8"></head>
-<body>
-<div style="display: flex; gap: 10px; font-family: sans-serif;">
-  {cards}
-</div>
-</body>
-</html>
+# ✅ 최신 게시물 5개 가져오기
+posts = soup.select(".gallery_list li")[:5]
+
+rss_items = ""
+now = datetime.now().strftime("%a, %d %b %Y %H:%M:%S +0900")
+
+for post in posts:
+    title_tag = post.select_one("span.title a")
+    title = title_tag.text.strip()
+    
+    # 🔗 링크 정확히 조합하기
+    raw_link = title_tag["href"]
+    if raw_link.startswith("http"):
+        link = raw_link
+    else:
+        link = "https://aict.snu.ac.kr" + raw_link
+
+    # 🖼️ 썸네일 추출
+    img_tag = post.select_one("span.photo img")
+    thumbnail_url = "https://aict.snu.ac.kr" + img_tag["src"] if img_tag else ""
+
+    rss_items += f"""
+  <item>
+    <title>{title}</title>
+    <link>{link}</link>
+    <pubDate>{now}</pubDate>
+    <description><![CDATA[
+      <img src="{thumbnail_url}" width="500"><br>
+      <a href="{link}">{title}</a>
+    ]]></description>
+  </item>
 """
 
-with open("latest.html", "w", encoding="utf-8") as f:
-    f.write(html)
+# 🧾 전체 RSS XML 만들기
+rss = f"""<?xml version="1.0" encoding="UTF-8" ?>
+<rss version="2.0">
+<channel>
+  <title>AICT 게시판 최신 5개</title>
+  <link>{url}</link>
+  <description>AICT 최근 게시글 5개를 자동으로 보여주는 RSS</description>
+  <lastBuildDate>{now}</lastBuildDate>
+{rss_items}
+</channel>
+</rss>"""
 
-print("✅ latest.html 생성 완료!")
+# 📁 바탕화면 > 김수아 폴더 경로
+feed_path = r"C:\Users\박정민\Desktop\김수아\feed.xml"
+debug_path = r"C:\Users\박정민\Desktop\김수아\debug.html"
 
+# 💾 저장
+try:
+    with open(feed_path, "w", encoding="utf-8") as f:
+        f.write(rss)
+    print("✅ feed.xml 저장 완료!")
+except Exception as e:
+    print("❌ feed.xml 저장 에러:", e)
+
+try:
+    with open(debug_path, "w", encoding="utf-8") as f:
+        f.write(html)
+    print("✅ debug.html 저장 완료!")
+except Exception as e:
+    print("❌ debug.html 저장 에러:", e)
+
+driver.quit()
+print("✅ 전체 작업 완료! 최신 게시물 정보가 feed.xml에 저장됨.")
